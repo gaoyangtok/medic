@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"time"
+	"strings"
 )
 
 type Sex string
@@ -25,6 +26,7 @@ type Foo struct {
 	Sex			Sex
 	Index		int
 	Checked 	bool
+	Deleted		bool
 }
 const data="data.csv"
 
@@ -38,10 +40,27 @@ func Write(dabs []*Foo) {
 	}
 	write:=csv.NewWriter(f)
 	records:=make([][]string, len(dabs)+1)
-	records[0]=[]string{"姓名","电话","登记时间","最新时间","病例诊断","治疗方案","就诊费用","实收费用","已付费用","住址","性别","年龄"}
+	records[0]=[]string{"姓名","电话","登记时间","最新时间","病例诊断","治疗方案","就诊费用","实收费用","已付费用","住址","性别","年龄","是否删除"}
 	for index,foo:=range dabs {
-
-		records[index+1]=[]string{foo.Name,foo.Phone,foo.Create.Format("2006-01-02 15:04:05"),foo.Update.Format("2006-01-02 15:04:05"),foo.Diagnosed,foo.Program,strconv.FormatFloat(foo.AllFee, 'f', 1, 64),strconv.FormatFloat(foo.RealFee, 'f', 1, 64),strconv.FormatFloat(foo.PaidFee, 'f', 1, 64),foo.Address,string(foo.Sex),strconv.Itoa(foo.Age)}
+		var del string
+		if foo.Deleted {
+			del = "1";
+		}else {
+			del = "0"
+		}
+		records[index+1]=[]string{
+			foo.Name,
+			foo.Phone,
+			foo.Create.Format("2006-01-02 15:04:05"),
+			foo.Update.Format("2006-01-02 15:04:05"),
+			foo.Diagnosed,
+			foo.Program,
+			strconv.FormatFloat(foo.AllFee, 'f', 1, 64),
+			strconv.FormatFloat(foo.RealFee, 'f', 1, 64),
+			strconv.FormatFloat(foo.PaidFee, 'f', 1, 64),
+			foo.Address,string(foo.Sex),strconv.Itoa(foo.Age),
+			del,
+		}
 	}
 	_ = write.WriteAll(records)
 
@@ -53,7 +72,7 @@ func Write(dabs []*Foo) {
 func Read() []*Foo {
 	file, err := os.Open(data)
 	if err != nil {
-		Write([]*Foo{}) //写入文件(字节数组)
+		Write([]*Foo{}) //如果不存在先创建一个空文件
 		file,_ = os.Open(data)
 	}
 	defer file.Close()
@@ -62,7 +81,7 @@ func Read() []*Foo {
 
 	records ,err:=read.ReadAll()
 	dabs := make([]*Foo, len(records)-1)
-	for index,_:= range dabs{
+	for index:= range dabs{
 		record:=records[index+1]
 		allFee,_ := strconv.ParseFloat(record[6],64)
 		realFee,_ := strconv.ParseFloat(record[7],64)
@@ -73,7 +92,22 @@ func Read() []*Foo {
 		if err!=nil{
 			panic(err)
 		}
-		dabs[index] = &Foo{Name: record[0], Phone: record[1], Create: create, Update: update, Diagnosed: record[4], Program: record[5], AllFee: allFee, RealFee: realFee, PaidFee: paidFee, Address: record[9], Sex: Sex(record[10]), Age:age, Index: index}
+		dabs[index] = &Foo{
+			Name: record[0],
+			Phone: record[1],
+			Create: create,
+			Update: update,
+			Diagnosed: record[4],
+			Program: record[5],
+			AllFee: allFee,
+			RealFee: realFee,
+			PaidFee: paidFee,
+			Address: record[9],
+			Sex: Sex(record[10]),
+			Age:age,
+			Index: index,
+			Deleted:len(record)>=13 && strings.Compare(record[12],"1")==0,
+		}
 	}
 
 	file.Close()

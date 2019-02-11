@@ -39,22 +39,19 @@ func NewFooModel() *FooModel {
 	m := new(FooModel)
 	m.sortColumn=3
 	m.sortOrder = 0
-	m.sItems = Read()
+	m.items = Read()
+	for _,item := range m.items{
+		if !item.Deleted{
+			m.sItems = append(m.sItems,item)
+		}
+	}
 	m.items = m.sItems[0:]
 	copy(m.items,m.sItems)
 	m.search = new(Search)
 	m.SumLabel = new(walk.Label)
 	m.SSumLabel = new(walk.Label)
 	m.LSumLabel = new(walk.Label)
-	for _,item := range m.items{
-		m.sum=m.sum+item.PaidFee
-		if item.Create.Month() == time.Now().Month(){
-			m.sSum = m.sSum+item.PaidFee
-		}
-		if item.RealFee>item.PaidFee{
-			m.lSum = m.lSum+item.RealFee-item.PaidFee
-		}
-	}
+	m.refreshTotal()
 	m.search.Start, _ = time.Parse("2006-01-02 15:04:05","2018-12-01 00:00:00")
 	m.search.End= time.Now().Add(time.Hour*24)
 	m.ResetRows()
@@ -106,6 +103,8 @@ func (m *FooModel) Value(row, col int) interface{} {
 		return item.Program
 	case 12:
 		return item.Address
+	case 13:
+		return item.Deleted
 	}
 
 	panic("unexpected col")
@@ -182,12 +181,38 @@ func (m *FooModel) Search() {
 	end:=m.search.End.Format("2006-01-02 15:04:05")
 	for _,item:=range m.items{
 		create:=item.Create.Format("2006-01-02 15:04:05")
-		if strings.Contains(item.Name,m.search.Name) && create>start && create<end && strings.Contains(item.Phone,m.search.Phone) {
+		if strings.Contains(item.Name,m.search.Name) && create>start && create<end && strings.Contains(item.Phone,m.search.Phone) && !item.Deleted {
 			sItems = append(sItems,item)
 		}
 	}
 	m.sItems = sItems
 	m.ResetRows()
+}
+
+func (m *FooModel) refreshTotal() {
+	m.sum = 0
+	m.lSum = 0
+	m.sSum = 0
+	for _,item := range m.items{
+		if item.Deleted {
+			continue
+		}
+		m.sum=m.sum+item.PaidFee
+		if item.Create.Month() == time.Now().Month(){
+			m.sSum = m.sSum+item.PaidFee
+		}
+		if item.RealFee>item.PaidFee{
+			m.lSum = m.lSum+item.RealFee-item.PaidFee
+		}
+	}
+}
+
+func (m *FooModel) save() {
+	Write(m.items)
+	m.refreshTotal()
+	m.LSumLabel.SetText(strconv.FormatFloat(model.lSum, 'f', 1, 64) + " 元")
+	m.SSumLabel.SetText(strconv.FormatFloat(model.sSum, 'f', 1, 64) + " 元")
+	m.SumLabel.SetText(strconv.FormatFloat(model.sum, 'f', 1, 64) + " 元")
 }
 
 var (
@@ -250,7 +275,7 @@ func main() {
 
 	var tv *walk.TableView
 	var db *walk.DataBinder
-	var queryPB,addPB *walk.PushButton
+	var queryPB,addPB,delPB *walk.PushButton
 	var mw *walk.MainWindow
 	_, _ = MainWindow{
 		AssignTo:   &mw,
@@ -267,7 +292,7 @@ func main() {
 					DataSource:     model.GetSearch(),
 					ErrorPresenter: ToolTipErrorPresenter{},
 				},
-				Layout:  Grid{Columns: 10},
+				Layout:  Grid{Columns: 11},
 				MaxSize: Size{Width: with * 80 / 100, Height: 40},
 				MinSize: Size{Width: with * 80 / 100, Height: 40},
 				Children: []Widget{
@@ -339,6 +364,24 @@ func main() {
 							}
 						},
 					},
+					PushButton{
+						AssignTo: &delPB,
+						Text:     "删除",
+						Font:     labelFont,
+						MaxSize:  Size{Width: 60, Height: 20},
+						MinSize:  Size{Width: 60, Height: 20},
+						OnClicked: func() {
+							for _,item := range model.items{
+								item.Deleted = item.Checked
+							}
+
+							if err := db.Submit(); err == nil {
+								model.Search()
+							}
+
+							model.save()
+						},
+					},
 				},
 			},
 
@@ -351,7 +394,7 @@ func main() {
 				//MinSize:Size{Width:with*75/100,Height:height-300},
 				//MaxSize:Size{Width:with,Height:height-100},
 				Columns: []TableViewColumn{
-					{Title: "#", Width: 22},
+					{Title: "操作", Width: 40},
 					{Title: "姓名", Alignment: AlignNear, Width: 50},
 					{Title: "电话", Alignment: AlignNear, Width: 100},
 					{Title: "性别", Alignment: AlignNear, Width: 40},
@@ -375,7 +418,10 @@ func main() {
 						if item.PaidFee < item.RealFee {
 							style.TextColor = walk.RGB(255, 0, 0)
 						}
+					case 0:
+						style.TextColor = walk.RGB(255, 0, 0)
 					}
+					style.Font,_ = walk.NewFont("Microsoft YaHei UI", 9,0)
 				},
 				Model: model,
 				OnItemActivated: func() {
@@ -390,8 +436,8 @@ func main() {
 					Label{
 						Text:    "合计收入:",
 						Font:    labelFont,
-						MaxSize: Size{Width: 50},
-						MinSize: Size{Width: 50},
+						MaxSize: Size{Width: 60},
+						MinSize: Size{Width: 60},
 					},
 					Label{
 						Text:     strconv.FormatFloat(model.sum, 'f', 1, 64) + " 元",
@@ -403,12 +449,12 @@ func main() {
 					Label{
 						Text:    "当月总计:",
 						Font:    labelFont,
-						MaxSize: Size{Width: 50},
-						MinSize: Size{Width: 50},
+						MaxSize: Size{Width: 60},
+						MinSize: Size{Width: 60},
 					},
 					Label{
 						Text:     strconv.FormatFloat(model.sSum, 'f', 1, 64) + " 元",
-						AssignTo: &model.LSumLabel,
+						AssignTo: &model.SSumLabel,
 						Font:     labelFont,
 						MaxSize:  Size{Width: 100},
 						MinSize:  Size{Width: 100},
@@ -416,12 +462,12 @@ func main() {
 					Label{
 						Text:    "差额总计:",
 						Font:    labelFont,
-						MaxSize: Size{Width: 50},
-						MinSize: Size{Width: 50},
+						MaxSize: Size{Width: 60},
+						MinSize: Size{Width: 60},
 					},
 					Label{
 						Text:     strconv.FormatFloat(model.lSum, 'f', 1, 64) + " 元",
-						AssignTo: &model.SSumLabel,
+						AssignTo: &model.LSumLabel,
 						Font:     labelFont,
 						MaxSize:  Size{Width: 100},
 						MinSize:  Size{Width: 100},
@@ -598,10 +644,11 @@ func AddDialog(owner walk.Form,foo *Foo) (int, error) {
 							if err := db.Submit(); err == nil {
 								foo.Update = time.Now()
 								if addFlag {
+									foo.Deleted = false
 									foo.Create = foo.Update
 									model.Head(foo)
 								}
-								Write(model.items)
+								model.save()
 							}
 							dlg.Accept()
 						},
