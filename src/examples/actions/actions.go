@@ -38,7 +38,7 @@ func main() {
 					Action{
 						AssignTo:    &openAction,
 						Text:        "&Open",
-						Image:       "../img/open.png",
+						Image:       "../medic/img/open.png",
 						Enabled:     Bind("enabledCB.Checked"),
 						Visible:     Bind("!openHiddenCB.Checked"),
 						Shortcut:    Shortcut{walk.ModControl, walk.KeyO},
@@ -72,7 +72,7 @@ func main() {
 				ActionRef{&openAction},
 				Menu{
 					Text:  "New A",
-					Image: "../img/document-new.png",
+					Image: "../medic/img/document-new.png",
 					Items: []MenuItem{
 						Action{
 							Text:        "A",
@@ -92,7 +92,7 @@ func main() {
 				Separator{},
 				Menu{
 					Text:  "View",
-					Image: "../img/document-properties.png",
+					Image: "../medic/img/document-properties.png",
 					Items: []MenuItem{
 						Action{
 							Text:        "X",
@@ -111,7 +111,7 @@ func main() {
 				Separator{},
 				Action{
 					Text:        "Special",
-					Image:       "../img/system-shutdown.png",
+					Image:       "../medic/img/system-shutdown.png",
 					Enabled:     Bind("isSpecialMode && enabledCB.Checked"),
 					OnTriggered: mw.specialAction_Triggered,
 				},

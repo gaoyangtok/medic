@@ -5,8 +5,10 @@
 package main
 
 import (
+	"encoding/csv"
 	"fmt"
-	. "medic/src/data"
+	"log"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,41 +21,147 @@ import (
 	. "github.com/lxn/walk/declarative"
 )
 
+type Sex string
+
+type Foo struct {
+	Name      string
+	Phone     string
+	Create    time.Time
+	Update    time.Time
+	Diagnosed string
+	Program   string
+	AllFee    float64
+	RealFee   float64
+	PaidFee   float64
+	Address   string
+	Age       int
+	Sex       Sex
+	Index     int
+	Checked   bool
+	Deleted   bool
+}
+
+const data = "data.csv"
+
+//Write 写入运行配置
+func Write(dabs []*Foo) {
+	//_ = os.Remove(data)
+	f, err := os.OpenFile(data, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.ModePerm)
+
+	if err != nil {
+		fmt.Print("写文件失败！")
+	}
+	write := csv.NewWriter(f)
+	records := make([][]string, len(dabs)+1)
+	records[0] = []string{"姓名", "电话", "登记时间", "最新时间", "病例诊断", "治疗方案", "就诊费用", "实收费用", "已付费用", "住址", "性别", "年龄", "是否删除"}
+	for index, foo := range dabs {
+		var del string
+		if foo.Deleted {
+			del = "1"
+		} else {
+			del = "0"
+		}
+		records[index+1] = []string{
+			foo.Name,
+			foo.Phone,
+			foo.Create.Format("2006-01-02 15:04:05"),
+			foo.Update.Format("2006-01-02 15:04:05"),
+			foo.Diagnosed,
+			foo.Program,
+			strconv.FormatFloat(foo.AllFee, 'f', 1, 64),
+			strconv.FormatFloat(foo.RealFee, 'f', 1, 64),
+			strconv.FormatFloat(foo.PaidFee, 'f', 1, 64),
+			foo.Address, string(foo.Sex), strconv.Itoa(foo.Age),
+			del,
+		}
+	}
+	_ = write.WriteAll(records)
+
+	f.Close()
+	return
+}
+
+//Read 读取运行配置
+func Read() []*Foo {
+	file, err := os.Open(data)
+	if err != nil {
+		Write([]*Foo{}) //如果不存在先创建一个空文件
+		file, _ = os.Open(data)
+	}
+	defer file.Close()
+
+	read := csv.NewReader(file)
+
+	records, err := read.ReadAll()
+	dabs := make([]*Foo, len(records)-1)
+	for index := range dabs {
+		record := records[index+1]
+		allFee, _ := strconv.ParseFloat(record[6], 64)
+		realFee, _ := strconv.ParseFloat(record[7], 64)
+		paidFee, _ := strconv.ParseFloat(record[8], 64)
+		create, _ := time.Parse("2006-01-02 15:04:05", record[2])
+		update, _ := time.Parse("2006-01-02 15:04:05", record[3])
+		age, err := strconv.Atoi(record[11])
+		if err != nil {
+			panic(err)
+		}
+		dabs[index] = &Foo{
+			Name:      record[0],
+			Phone:     record[1],
+			Create:    create,
+			Update:    update,
+			Diagnosed: record[4],
+			Program:   record[5],
+			AllFee:    allFee,
+			RealFee:   realFee,
+			PaidFee:   paidFee,
+			Address:   record[9],
+			Sex:       Sex(record[10]),
+			Age:       age,
+			Index:     index,
+			Deleted:   len(record) >= 13 && strings.Compare(record[12], "1") == 0,
+		}
+	}
+
+	file.Close()
+	return dabs
+}
+
 type FooModel struct {
 	walk.TableModelBase
 	walk.SorterBase
-	sortColumn	int
-	sortOrder	walk.SortOrder
-	search		*Search
-	items		[]*Foo
-	sItems		[]*Foo
-	sum 		float64
-	sSum		float64
-	lSum		float64
-	SumLabel	*walk.Label
-	SSumLabel	*walk.Label
-	LSumLabel	*walk.Label
+	sortColumn int
+	sortOrder  walk.SortOrder
+	search     *Search
+	items      []*Foo
+	sItems     []*Foo
+	sum        float64
+	sSum       float64
+	lSum       float64
+	SumLabel   *walk.Label
+	SSumLabel  *walk.Label
+	LSumLabel  *walk.Label
 }
 
 func NewFooModel() *FooModel {
 	m := new(FooModel)
-	m.sortColumn=3
+	m.sortColumn = 3
 	m.sortOrder = 0
 	m.items = Read()
-	for _,item := range m.items{
-		if !item.Deleted{
-			m.sItems = append(m.sItems,item)
+	for _, item := range m.items {
+		if !item.Deleted {
+			m.sItems = append(m.sItems, item)
 		}
 	}
 	m.items = m.sItems[0:]
-	copy(m.items,m.sItems)
+	copy(m.items, m.sItems)
 	m.search = new(Search)
 	m.SumLabel = new(walk.Label)
 	m.SSumLabel = new(walk.Label)
 	m.LSumLabel = new(walk.Label)
 	m.refreshTotal()
-	m.search.Start, _ = time.Parse("2006-01-02 15:04:05","2018-12-01 00:00:00")
-	m.search.End= time.Now().Add(time.Hour*24)
+	m.search.Start, _ = time.Parse("2006-01-02 15:04:05", "2018-12-01 00:00:00")
+	m.search.End = time.Now().Add(time.Hour * 24)
 	m.ResetRows()
 	return m
 }
@@ -69,8 +177,8 @@ func (m *FooModel) RowCount() int {
 }
 
 func (m *FooModel) Head(foo *Foo) {
-	m.items=append(append([]*Foo{},foo), m.items...)
-	m.sItems=append(append([]*Foo{},foo), m.sItems...)
+	m.items = append(append([]*Foo{}, foo), m.items...)
+	m.sItems = append(append([]*Foo{}, foo), m.sItems...)
 }
 
 // Called by the TableView when it needs the text to display for a given cell.
@@ -177,12 +285,12 @@ func (m *FooModel) ResetRows() {
 
 func (m *FooModel) Search() {
 	sItems := []*Foo{}
-	start:=m.search.Start.Format("2006-01-02 15:04:05")
-	end:=m.search.End.Format("2006-01-02 15:04:05")
-	for _,item:=range m.items{
-		create:=item.Create.Format("2006-01-02 15:04:05")
-		if strings.Contains(item.Name,m.search.Name) && create>start && create<end && strings.Contains(item.Phone,m.search.Phone) && !item.Deleted {
-			sItems = append(sItems,item)
+	start := m.search.Start.Format("2006-01-02 15:04:05")
+	end := m.search.End.Format("2006-01-02 15:04:05")
+	for _, item := range m.items {
+		create := item.Create.Format("2006-01-02 15:04:05")
+		if strings.Contains(item.Name, m.search.Name) && create > start && create < end && strings.Contains(item.Phone, m.search.Phone) && !item.Deleted {
+			sItems = append(sItems, item)
 		}
 	}
 	m.sItems = sItems
@@ -193,16 +301,17 @@ func (m *FooModel) refreshTotal() {
 	m.sum = 0
 	m.lSum = 0
 	m.sSum = 0
-	for _,item := range m.items{
+	for _, item := range m.items {
 		if item.Deleted {
 			continue
 		}
-		m.sum=m.sum+item.PaidFee
-		if item.Create.Month() == time.Now().Month(){
-			m.sSum = m.sSum+item.PaidFee
+		m.sum = m.sum + item.PaidFee
+
+		if item.Create.Year() == time.Now().Year() && item.Create.Month() == time.Now().Month() {
+			m.sSum = m.sSum + item.PaidFee
 		}
-		if item.RealFee>item.PaidFee{
-			m.lSum = m.lSum+item.RealFee-item.PaidFee
+		if item.RealFee > item.PaidFee {
+			m.lSum = m.lSum + item.RealFee - item.PaidFee
 		}
 	}
 }
@@ -234,11 +343,17 @@ const (
 var model = NewFooModel()
 
 type Search struct {
-	Name 	string
-	Phone 	string
-	Start 	time.Time
-	End		time.Time
+	Name  string
+	Phone string
+	Start time.Time
+	End   time.Time
 }
+type MyDialog struct {
+	*walk.Dialog
+}
+
+var labelFont = Font{Family: "Microsoft YaHei UI", PointSize: 9}
+var font, _ = walk.NewFont("Microsoft YaHei UI", 9, 0)
 
 func main() {
 	fmt.Println("hello world!")
@@ -246,15 +361,13 @@ func main() {
 	walk.InteractionEffect, _ = walk.NewDropShadowEffect(walk.RGB(63, 63, 63))
 	walk.ValidationErrorEffect, _ = walk.NewBorderGlowEffect(walk.RGB(255, 0, 0))
 
-	with:=GetSystemMetrics(SM_CXSCREEN)
-	height:=GetSystemMetrics(SM_CYSCREEN)
+	with := GetSystemMetrics(SM_CXSCREEN)
+	height := GetSystemMetrics(SM_CYSCREEN)
 	//boldFont, _ := walk.NewFont("Segoe UI", 9, walk.FontBold)
 
-	inputWidth:=(with*80/100-30*3-60*2-150)/4
+	inputWidth := (with*80/100 - 30*3 - 60*2 - 150) / 4
 
-	labelFont:=Font{Family:"Microsoft YaHei UI",PointSize:9}
-
- 	goodIcon, _ := walk.Resources.Icon("img/check.ico")
+	goodIcon, _ := walk.Resources.Icon("img/check.ico")
 	//badIcon, _ := walk.Resources.Icon("img/stop.ico")
 
 	barBitmap, err := walk.NewBitmap(walk.Size{Width: 100, Height: 1})
@@ -275,7 +388,7 @@ func main() {
 
 	var tv *walk.TableView
 	var db *walk.DataBinder
-	var queryPB,addPB,delPB *walk.PushButton
+	var queryPB, addPB, delPB, staPB *walk.PushButton
 	var mw *walk.MainWindow
 	_, _ = MainWindow{
 		AssignTo:   &mw,
@@ -292,7 +405,7 @@ func main() {
 					DataSource:     model.GetSearch(),
 					ErrorPresenter: ToolTipErrorPresenter{},
 				},
-				Layout:  Grid{Columns: 11},
+				Layout:  Grid{Columns: 12},
 				MaxSize: Size{Width: with * 80 / 100, Height: 40},
 				MinSize: Size{Width: with * 80 / 100, Height: 40},
 				Children: []Widget{
@@ -365,13 +478,23 @@ func main() {
 						},
 					},
 					PushButton{
+						AssignTo: &staPB,
+						Text:     "统计",
+						Font:     labelFont,
+						MaxSize:  Size{Width: 60, Height: 20},
+						MinSize:  Size{Width: 60, Height: 20},
+						OnClicked: func() {
+							go OpenStatic()
+						},
+					},
+					PushButton{
 						AssignTo: &delPB,
 						Text:     "删除",
 						Font:     labelFont,
 						MaxSize:  Size{Width: 60, Height: 20},
 						MinSize:  Size{Width: 60, Height: 20},
 						OnClicked: func() {
-							for _,item := range model.items{
+							for _, item := range model.items {
 								item.Deleted = item.Checked
 							}
 
@@ -421,7 +544,7 @@ func main() {
 					case 0:
 						style.TextColor = walk.RGB(255, 0, 0)
 					}
-					style.Font,_ = walk.NewFont("Microsoft YaHei UI", 9,0)
+					style.Font = font
 				},
 				Model: model,
 				OnItemActivated: func() {
@@ -512,26 +635,219 @@ func main() {
 	}.Run()
 }
 
+var width = 60
+
+func OpenStatic() {
+	dmw := new(MyMainWindow)
+
+	mc, _, _ := GetMonthSum()
+
+	if _, err := (MainWindow{
+		AssignTo: &dmw.MainWindow,
+		Title:    "月份统计",
+		MinSize:  Size{(len(mc) + 1) * width, 350},
+		Size:     Size{(len(mc) + 1) * width, 350},
+		MaxSize:  Size{(len(mc) + 1) * width, 350},
+		Layout:   VBox{MarginsZero: true},
+		Children: []Widget{
+			CustomWidget{
+				AssignTo:            &dmw.paintWidget,
+				ClearsBackground:    true,
+				InvalidatesOnResize: true,
+				Paint:               dmw.drawStuff,
+			},
+		},
+	}).Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+type MyMainWindow struct {
+	*walk.MainWindow
+	paintWidget *walk.CustomWidget
+}
+
+type MonthCount struct {
+	Month int
+	Money float64
+}
+
+func GetMonthSum() ([]MonthCount, float64, float64) {
+
+	var maps = map[int]float64{}
+	var mons []int
+
+	var mc []MonthCount
+
+	start := model.search.Start.Year()*12 + int(model.search.Start.Month())
+	end := model.search.End.Year()*12 + int(model.search.End.Month())
+
+	for _, item := range model.items {
+		time := item.Create.Year()*12 + int(item.Create.Month())
+		if item.Deleted || time < start || time > end {
+			continue
+		}
+		mon := item.Create.Year()*12 + int(item.Create.Month())
+		money, ok := maps[mon]
+		if !ok {
+			maps[mon] = 0
+			mons = append(mons, mon)
+		}
+		maps[mon] = item.PaidFee + money
+	}
+	sort.Ints(mons)
+
+	var max = 0.0
+	var min = 10000000.0
+
+	for _, mon := range mons {
+		money := maps[mon]
+
+		mc = append(mc, MonthCount{
+			Money: money,
+			Month: mon,
+		})
+
+		if max < money {
+			max = money
+		}
+		if min > money {
+			min = money
+		}
+	}
+	return mc, max, min
+}
+
+func (mw *MyMainWindow) drawStuff(canvas *walk.Canvas, updateBounds walk.Rectangle) error {
+	mons, max, _ := GetMonthSum()
+
+	//bmp, err := createBitmap()
+	//if err != nil {
+	//	return err
+	//}
+	//defer bmp.Dispose()
+
+	ellipseBrush, err := walk.NewHatchBrush(walk.RGB(255, 0, 255), walk.HatchBackwardDiagonal)
+	if err != nil {
+		return err
+	}
+	defer ellipseBrush.Dispose()
+
+	// 总高度200
+	var total, sum = 200, 250
+	for i, item := range mons {
+
+		mon := (item.Month-1)%12 + 1
+		height := int(item.Money * float64(total) / max)
+
+		if err := canvas.FillRectangle(ellipseBrush, walk.Rectangle{
+			X:      40 + i*width,
+			Y:      sum - height,
+			Width:  20,
+			Height: height,
+		}); err != nil {
+			return err
+		}
+
+		if err := canvas.DrawText(fmt.Sprint(mon, "月"), font, walk.RGB(0, 0, 0), walk.Rectangle{
+			X:      40 + i*width,
+			Y:      sum,
+			Width:  60,
+			Height: height,
+		}, walk.TextWordbreak); err != nil {
+			return err
+		}
+
+		if err := canvas.DrawText(fmt.Sprint(item.Money), font, walk.RGB(0, 0, 0), walk.Rectangle{
+			X:      33 + i*width,
+			Y:      sum - height - 20,
+			Width:  60,
+			Height: 20,
+		}, walk.TextWordbreak); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+//
+//func createBitmap() (*walk.Bitmap, error) {
+//	bounds := walk.Rectangle{Width: 200, Height: 200}
+//
+//	bmp, err := walk.NewBitmap(bounds.Size())
+//	if err != nil {
+//		return nil, err
+//	}
+//
+//	succeeded := false
+//	defer func() {
+//		if !succeeded {
+//			bmp.Dispose()
+//		}
+//	}()
+//
+//	canvas, err := walk.NewCanvasFromImage(bmp)
+//	if err != nil {
+//		return nil, err
+//	}
+//	defer canvas.Dispose()
+//
+//	brushBmp, err := walk.NewBitmapFromFile("../medic/img/plus.png")
+//	if err != nil {
+//		return nil, err
+//	}
+//	defer brushBmp.Dispose()
+//
+//	brush, err := walk.NewBitmapBrush(brushBmp)
+//	if err != nil {
+//		return nil, err
+//	}
+//	defer brush.Dispose()
+//
+//	if err := canvas.FillRectangle(brush, bounds); err != nil {
+//		return nil, err
+//	}
+//
+//	font, err := walk.NewFont("Times New Roman", 40, walk.FontBold|walk.FontItalic)
+//	if err != nil {
+//		return nil, err
+//	}
+//	defer font.Dispose()
+//
+//	if err := canvas.DrawText("Walk Drawing Example", font, walk.RGB(0, 0, 0), bounds, walk.TextWordbreak); err != nil {
+//		return nil, err
+//	}
+//
+//	succeeded = true
+//
+//	return bmp, nil
+//}
+
 const (
 	SexWoman Sex = "女"
-	SexMan Sex = "男"
+	SexMan   Sex = "男"
 )
 
-func AddDialog(owner walk.Form,foo *Foo) (int, error) {
-	var dlg *walk.Dialog
+func (dlg *MyDialog) openAction_Triggered() {
+	walk.MsgBox(dlg, "告警", "费用信息不能全部为空！", walk.MsgBoxIconInformation)
+}
+
+func AddDialog(owner walk.Form, foo *Foo) (int, error) {
+	dlg := new(MyDialog)
 	var db *walk.DataBinder
 	var acceptPB, cancelPB *walk.PushButton
 	addIcon, _ := walk.Resources.Icon("img/plus.png")
-	addFlag := foo==nil
-	if addFlag{
+	addFlag := foo == nil
+	if addFlag {
 		foo = new(Foo)
-		foo.Sex=SexMan
+		foo.Sex = SexMan
 	}
 	return Dialog{
-		AssignTo:      &dlg,
-		Icon: addIcon,
-		Background: SystemColorBrush{Color:walk.SysColorWindow},
-		Title:         Bind("添加病例"),
+		AssignTo:      &dlg.Dialog,
+		Icon:          addIcon,
+		Background:    SystemColorBrush{Color: walk.SysColorWindow},
+		Title:         "添加病例",
 		DefaultButton: &acceptPB,
 		CancelButton:  &cancelPB,
 		DataBinder: DataBinder{
@@ -540,8 +856,8 @@ func AddDialog(owner walk.Form,foo *Foo) (int, error) {
 			DataSource:     foo,
 			ErrorPresenter: ToolTipErrorPresenter{},
 		},
-		MinSize: Size{Width:300},
-		MaxSize: Size{Width:400},
+		MinSize: Size{Width: 300},
+		MaxSize: Size{Width: 400},
 		Layout:  VBox{},
 		Children: []Widget{
 			Composite{
@@ -642,15 +958,24 @@ func AddDialog(owner walk.Form,foo *Foo) (int, error) {
 						Text:     "保存",
 						OnClicked: func() {
 							if err := db.Submit(); err == nil {
-								foo.Update = time.Now()
-								if addFlag {
-									foo.Deleted = false
-									foo.Create = foo.Update
-									model.Head(foo)
+								if foo.AllFee > 0 || foo.RealFee > 0 || foo.PaidFee > 0 {
+									if foo.RealFee == 0.0 {
+										foo.RealFee = foo.AllFee
+									}
+
+									foo.Update = time.Now()
+									if addFlag {
+										foo.Deleted = false
+										foo.Create = foo.Update
+										model.Head(foo)
+									}
+									model.save()
+									dlg.Accept()
+								} else {
+									dlg.openAction_Triggered()
 								}
-								model.save()
 							}
-							dlg.Accept()
+
 						},
 					},
 					PushButton{

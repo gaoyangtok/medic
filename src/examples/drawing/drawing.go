@@ -5,6 +5,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"math"
 )
@@ -34,6 +35,7 @@ func main() {
 	}).Run(); err != nil {
 		log.Fatal(err)
 	}
+	fmt.Println("123")
 }
 
 type MyMainWindow struct {
@@ -128,7 +130,7 @@ func createBitmap() (*walk.Bitmap, error) {
 	}
 	defer canvas.Dispose()
 
-	brushBmp, err := walk.NewBitmapFromFile("../img/plus.png")
+	brushBmp, err := walk.NewBitmapFromFile("../medic/img/plus.png")
 	if err != nil {
 		return nil, err
 	}
