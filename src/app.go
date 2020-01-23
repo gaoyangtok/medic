@@ -642,12 +642,16 @@ func OpenStatic() {
 
 	mc, _, _ := GetMonthSum()
 
+
+	var leng=7
+	if len(mc) > leng{
+		leng=len(mc)+1
+	}
 	if _, err := (MainWindow{
 		AssignTo: &dmw.MainWindow,
 		Title:    "月份统计",
-		MinSize:  Size{(len(mc) + 1) * width, 350},
-		Size:     Size{(len(mc) + 1) * width, 350},
-		MaxSize:  Size{(len(mc) + 1) * width, 350},
+		MinSize:  Size{leng * width, 350},
+		Size:     Size{leng * width, 350},
 		Layout:   VBox{MarginsZero: true},
 		Children: []Widget{
 			CustomWidget{
