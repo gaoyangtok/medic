@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -147,6 +148,7 @@ func NewFooModel() *FooModel {
 	m := new(FooModel)
 	m.sortColumn = 3
 	m.sortOrder = 0
+	rwLock.Lock()
 	m.items = Read()
 	for _, item := range m.items {
 		if !item.Deleted {
@@ -163,6 +165,7 @@ func NewFooModel() *FooModel {
 	m.search.Start, _ = time.Parse("2006-01-02 15:04:05", "2018-12-01 00:00:00")
 	m.search.End = time.Now().Add(time.Hour * 24)
 	m.ResetRows()
+	rwLock.Unlock()
 	return m
 }
 
@@ -317,11 +320,14 @@ func (m *FooModel) refreshTotal() {
 }
 
 func (m *FooModel) save() {
+	rwLock.Lock()
 	Write(m.items)
+
 	m.refreshTotal()
 	m.LSumLabel.SetText(strconv.FormatFloat(model.lSum, 'f', 1, 64) + " 元")
 	m.SSumLabel.SetText(strconv.FormatFloat(model.sSum, 'f', 1, 64) + " 元")
 	m.SumLabel.SetText(strconv.FormatFloat(model.sum, 'f', 1, 64) + " 元")
+	rwLock.Unlock()
 }
 
 var (
@@ -341,6 +347,7 @@ const (
 )
 
 var model = NewFooModel()
+var rwLock *sync.RWMutex = new(sync.RWMutex)
 
 type Search struct {
 	Name  string
@@ -354,12 +361,21 @@ type MyDialog struct {
 
 var labelFont = Font{Family: "Microsoft YaHei UI", PointSize: 9}
 var font, _ = walk.NewFont("Microsoft YaHei UI", 9, 0)
+var rgbs [7]walk.Color
+
 
 func main() {
-	fmt.Println("hello world!")
 	walk.FocusEffect, _ = walk.NewBorderGlowEffect(walk.RGB(0, 63, 255))
 	walk.InteractionEffect, _ = walk.NewDropShadowEffect(walk.RGB(63, 63, 63))
 	walk.ValidationErrorEffect, _ = walk.NewBorderGlowEffect(walk.RGB(255, 0, 0))
+
+	rgbs[0]=walk.RGB(255,127,36)
+	rgbs[1]=walk.RGB(240,128,128)
+	rgbs[2]=walk.RGB(205,173,0)
+	rgbs[3]=walk.RGB(205,0,205)
+	rgbs[4]=walk.RGB(160,82,45)
+	rgbs[5]=walk.RGB(34,139,34)
+	rgbs[6]=walk.RGB(105,89,205)
 
 	with := GetSystemMetrics(SM_CXSCREEN)
 	height := GetSystemMetrics(SM_CYSCREEN)
@@ -494,9 +510,11 @@ func main() {
 						MaxSize:  Size{Width: 60, Height: 20},
 						MinSize:  Size{Width: 60, Height: 20},
 						OnClicked: func() {
+							rwLock.Lock()
 							for _, item := range model.items {
 								item.Deleted = item.Checked
 							}
+							rwLock.Unlock()
 
 							if err := db.Submit(); err == nil {
 								model.Search()
@@ -635,23 +653,26 @@ func main() {
 	}.Run()
 }
 
-var width = 60
+var width,offset,total = 55, 200, 200
 
 func OpenStatic() {
 	dmw := new(MyMainWindow)
 
-	mc, _, _ := GetMonthSum()
+	mc,yc ,_, _ := GetMonthSum()
 
-
-	var leng=7
+	var height = len(yc)*30+100
+	if (height<350){
+		height = 350
+	}
+	var leng=6
 	if len(mc) > leng{
-		leng=len(mc)+1
+		leng=len(mc)
 	}
 	if _, err := (MainWindow{
 		AssignTo: &dmw.MainWindow,
-		Title:    "月份统计",
-		MinSize:  Size{leng * width, 350},
-		Size:     Size{leng * width, 350},
+		Title:    "收入统计",
+		MinSize:  Size{leng * width+offset, 350},
+		Size:     Size{leng * width+offset, height},
 		Layout:   VBox{MarginsZero: true},
 		Children: []Widget{
 			CustomWidget{
@@ -676,36 +697,81 @@ type MonthCount struct {
 	Money float64
 }
 
-func GetMonthSum() ([]MonthCount, float64, float64) {
+type YearCount struct {
+	Year int
+	Money float64
+}
 
-	var maps = map[int]float64{}
+func GetMonthSum() ([]MonthCount, []YearCount, float64, float64) {
+
+	var months = map[int]float64{}
+	var years = map[int]float64{}
 	var mons []int
 
 	var mc []MonthCount
+	var yc []YearCount
 
 	start := model.search.Start.Year()*12 + int(model.search.Start.Month())
 	end := model.search.End.Year()*12 + int(model.search.End.Month())
 
+	rwLock.RLock()
 	for _, item := range model.items {
-		time := item.Create.Year()*12 + int(item.Create.Month())
-		if item.Deleted || time < start || time > end {
+		year:=item.Create.Year()
+
+		_time := year*12 + int(item.Create.Month())
+		if item.Deleted {
 			continue
 		}
-		mon := item.Create.Year()*12 + int(item.Create.Month())
-		money, ok := maps[mon]
+
+		ym,ok := years[year]
 		if !ok {
-			maps[mon] = 0
+			ym = 0
+			years[year] = 0
+		}
+		years[year] = item.PaidFee + ym
+
+		if _time < start || _time > end {
+			continue
+		}
+
+		mon := year*12 + int(item.Create.Month())
+		money, ok := months[mon]
+		if !ok {
+			money = 0
+			months[mon] = 0
 			mons = append(mons, mon)
 		}
-		maps[mon] = item.PaidFee + money
+		months[mon] = item.PaidFee + money
 	}
+	rwLock.RUnlock()
 	sort.Ints(mons)
 
 	var max = 0.0
 	var min = 10000000.0
 
+	keys := make([]int, 0, len(years))
+	for k := range years {
+		keys = append(keys, k)
+	}
+
+	sort.Ints(keys)
+	for _,year := range keys{
+		money := years[year]
+		yc = append(yc,YearCount{
+			Money: money,
+			Year: year,
+		})
+	}
+
+	// var yc,cur_year = 0,0
 	for _, mon := range mons {
-		money := maps[mon]
+		money := months[mon]
+
+		// year:=(mon-1)/12
+		// if (year!=cur_year){
+		// 	yc++;
+		// 	cur_year = year
+		// }
 
 		mc = append(mc, MonthCount{
 			Money: money,
@@ -719,59 +785,175 @@ func GetMonthSum() ([]MonthCount, float64, float64) {
 			min = money
 		}
 	}
-	return mc, max, min
+	return mc, yc , max, min
+}
+
+func DrawMonth(canvas *walk.Canvas,item MonthCount,i int,max float64,sum int)  error{
+	mon := (item.Month-1)%12 + 1
+
+	height := int(item.Money/max*float64(sum-50))
+
+	ellipseBrush, err :=  walk.NewSolidColorBrush(rgbs[((item.Month-1)/12)%len(rgbs)])
+	if err != nil {
+		return err
+	}
+	defer ellipseBrush.Dispose()
+
+	if err := canvas.FillRectangle(ellipseBrush, walk.Rectangle{
+		X:      offset + i*width,
+		Y:      sum - height,
+		Width:  20,
+		Height: height,
+	}); err != nil {
+		return err
+	}
+
+	if err := canvas.DrawText(fmt.Sprint(mon, "月"), font, walk.RGB(0, 0, 0), walk.Rectangle{
+		X:      offset + i*width,
+		Y:      sum,
+		Width:  60,
+		Height: height,
+	}, walk.TextWordbreak); err != nil {
+		return err
+	}
+
+	if err := canvas.DrawText(fmt.Sprint(item.Money), font, walk.RGB(0, 0, 0), walk.Rectangle{
+		X:      offset-6 + i*width,
+		Y:      sum - height - 20,
+		Width:  60,
+		Height: 20,
+	}, walk.TextWordbreak); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func DrawYear(canvas *walk.Canvas,item YearCount,i int ,sum int) (err error){
+
+	var height = 14
+
+	ellipseBrush, err :=  walk.NewSolidColorBrush(rgbs[(item.Year)%len(rgbs)])
+	if err != nil {
+		return err
+	}
+	defer ellipseBrush.Dispose()
+
+	leng := item.Money*2/10000
+
+	if err := canvas.DrawText(fmt.Sprint(item.Year," 年"), font, walk.RGB(0, 0, 0), walk.Rectangle{
+		X:      10,
+		Y:      sum-height*2*i-height,
+		Width:  60,
+		Height: height,
+	}, walk.TextWordbreak); err != nil {
+		return err
+	}
+
+	if err := canvas.FillRectangle(ellipseBrush, walk.Rectangle{
+		X:      60,
+		Y:      sum-height*2*i-height,
+		Width:  int(leng),
+		Height: height,
+	}); err != nil {
+		return  err
+	}
+
+	var year_str = ""
+	if item.Money>=10000{
+		end := int(item.Money)%10000;
+		var fill = ""
+		if end<10{
+			fill = "000"
+		}else if end< 100{
+			fill = "00"
+		}else if end < 1000{
+			fill = "0"
+		}
+		year_str = fmt.Sprint(int(item.Money)/10000," ",fill,end," 元")
+	}else{
+		year_str = fmt.Sprint(int(item.Money)%10000," 元")
+	}
+
+	if err := canvas.DrawText(year_str, font, walk.RGB(0, 0, 0), walk.Rectangle{
+		X:      60+10+int(leng),
+		Y:      sum-height*2*i-height,
+		Width:  100,
+		Height: height,
+	}, walk.TextWordbreak); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (mw *MyMainWindow) drawStuff(canvas *walk.Canvas, updateBounds walk.Rectangle) error {
-	mons, max, _ := GetMonthSum()
+	mons, yc ,max, _ := GetMonthSum()
 
+	var height = len(yc)*30+100
+	if (height<350){
+		height = 350
+	}
+	sum := height - 76
 	//bmp, err := createBitmap()
 	//if err != nil {
 	//	return err
 	//}
 	//defer bmp.Dispose()
 
-	ellipseBrush, err := walk.NewHatchBrush(walk.RGB(255, 0, 255), walk.HatchBackwardDiagonal)
-	if err != nil {
-		return err
+	//ellipseBrush, err := walk.NewHatchBrush(walk.RGB(255, 0, 255), walk.HatchBackwardDiagonal)
+	//ellipseBrush, err :=  walk.NewSolidColorBrush(walk.RGB(0, 0, 255))
+	//if err != nil {
+	//	return err
+	//}
+	//defer ellipseBrush.Dispose()
+	//
+	
+	for i,item := range yc{
+		if err := DrawYear(canvas, item,i ,sum); err != nil {
+			return err
+		}
 	}
-	defer ellipseBrush.Dispose()
 
 	// 总高度200
-	var total, sum = 200, 250
+	//var cur_year,sum_year,c_year,m_year, last_year= 0, 0.0, 1, 0, 0
+	// var cur_year,sum_year,c_year,m_year, last_year= 0, 0.0, 1, 0, 0
+
 	for i, item := range mons {
+		// year := (item.Month-1)/12
 
-		mon := (item.Month-1)%12 + 1
-		height := int(item.Money * float64(total) / max)
+		// if 0==last_year {
+		// 	last_year = year
+		// }
 
-		if err := canvas.FillRectangle(ellipseBrush, walk.Rectangle{
-			X:      40 + i*width,
-			Y:      sum - height,
-			Width:  20,
-			Height: height,
-		}); err != nil {
+		// if cur_year != year {
+		// 	m_year++
+		// }
+
+		if err := DrawMonth(canvas,item,i,max,sum); err != nil {
 			return err
 		}
 
-		if err := canvas.DrawText(fmt.Sprint(mon, "月"), font, walk.RGB(0, 0, 0), walk.Rectangle{
-			X:      40 + i*width,
-			Y:      sum,
-			Width:  60,
-			Height: height,
-		}, walk.TextWordbreak); err != nil {
-			return err
-		}
+		// if cur_year != year {
+		// 	if c_year>1{
+		// 		if err := DrawYear(canvas, c_year-1,last_year, sum_year,sum); err != nil {
+		// 			return err
+		// 		}
+		// 	}
 
-		if err := canvas.DrawText(fmt.Sprint(item.Money), font, walk.RGB(0, 0, 0), walk.Rectangle{
-			X:      33 + i*width,
-			Y:      sum - height - 20,
-			Width:  60,
-			Height: 20,
-		}, walk.TextWordbreak); err != nil {
-			return err
-		}
+		// 	last_year = cur_year
+		// 	cur_year = year
+
+		// 	sum_year = 0.0
+		// 	c_year++
+		// }
+		// sum_year += item.Money
+		// last_year = year
 	}
 
+	// if err := DrawYear(canvas, c_year-1, last_year, sum_year,sum); err != nil {
+	// 	return err
+	// }
 	return nil
 }
 
